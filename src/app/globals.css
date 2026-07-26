@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/*
+  AscoSys — thème sombre "JARVIS"
+  Palette : bleu nuit profond + accent cyan (arc-reactor)
+*/
+:root {
+  --background: #060a14;
+  --surface: #0c1322;
+  --surface-2: #111a2e;
+  --card: #0e1626;
+  --foreground: #e6edf7;
+  --muted: #8497b5;
+  --muted-foreground: #6b7d9c;
+  --border: #1c2942;
+  --input: #16213a;
+  --ring: #22d3ee;
+
+  --primary: #22d3ee;
+  --primary-foreground: #04121a;
+  --accent: #38bdf8;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  --radius: 0.6rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.15rem);
+  --radius-sm: calc(var(--radius) - 0.3rem);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(34, 211, 238, 0.06), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(56, 189, 248, 0.05), transparent 55%),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Barre de défilement discrète */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid var(--background);
+}
+::-webkit-scrollbar-thumb:hover { background: #2a3a5c; }
+
+/* Effet "glow" pour les éléments d'accent */
+.glow {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 0 24px -6px rgba(34, 211, 238, 0.45);
+}
+
+.text-glow {
+  text-shadow: 0 0 18px rgba(34, 211, 238, 0.35);
+}
+
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
