@@ -25,7 +25,16 @@ export function LoginForm() {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        setError("Identifiants incorrects.");
+        const code = (error as { code?: string }).code;
+        if (code === "email_not_confirmed") {
+          setError("Ce compte n'est pas encore confirmé. Contactez l'administrateur.");
+        } else if (code === "invalid_credentials") {
+          setError("E-mail ou mot de passe incorrect.");
+        } else if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit") {
+          setError("Trop de tentatives. Réessayez dans quelques minutes.");
+        } else {
+          setError(error.message || "Connexion impossible.");
+        }
         return;
       }
       router.push("/");
