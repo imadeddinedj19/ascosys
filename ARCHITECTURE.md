@@ -1,6 +1,6 @@
-# AscoSys 1.0 — Complete AI Rebuild Specification
+# AscoSys — Architecture reference
 
-> This document is a self-contained specification. An AI reading this file should be able to rebuild the entire AscoSys application from scratch without any other context. It covers every architectural decision, module, database schema, UI pattern, business rule, and edge case.
+> Kept alongside the code so architectural decisions, business rules, and edge cases don't get lost between sessions. Skim table of contents; grep for the specific corner you're touching. Sections 6 (schema) and 22 (business rules) are the ones I re-open the most.
 
 ---
 
