@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# source spreadsheets / business data (never commit — real client data)
+*.xlsx
+*.docx
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
