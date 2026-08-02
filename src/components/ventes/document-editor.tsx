@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, ArrowLeft, FileText, Truck } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, FileText, Truck, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ import {
   type DocumentInput,
   type LineInput,
 } from "@/app/(app)/ventes/actions";
+import { FactureRouteModal, type BonLineForRoute } from "@/components/ventes/facture-route-modal";
 
 export type EditorMode = "facture" | "bon";
 
@@ -57,6 +58,7 @@ export function DocumentEditor({
   const backHref = isFacture ? "/factures" : "/bons-livraison";
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [routeModalOpen, setRouteModalOpen] = useState(false);
 
   const [header, setHeader] = useState<DocumentInput>({
     date: initial?.date ?? todayISO(),
@@ -154,6 +156,11 @@ export function DocumentEditor({
                 <Link href={`/ventes/${initial.id}/bon-livraison`} target="_blank">
                   <Button type="button" variant="secondary" size="sm"><Truck className="size-4" /> Bon de livraison</Button>
                 </Link>
+                {!isFacture && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setRouteModalOpen(true)}>
+                    <ReceiptText className="size-4" /> Facture / BL de route
+                  </Button>
+                )}
               </>
             )}
             <Button type="button" variant="ghost" onClick={() => router.push(backHref)}>
@@ -285,6 +292,25 @@ export function DocumentEditor({
         <Button type="button" variant="outline" onClick={() => router.push(backHref)}>Annuler</Button>
         <Button type="submit" disabled={pending}>{pending ? "Enregistrement…" : "Enregistrer"}</Button>
       </div>
+
+      {initial && !isFacture && (
+        <FactureRouteModal
+          open={routeModalOpen}
+          onClose={() => setRouteModalOpen(false)}
+          bonId={initial.id}
+          clientId={header.client_id}
+          suggestedDate={header.date}
+          bonLines={lines
+            .map((l, idx) => ({
+              id: String(idx),
+              product_id: l.product_id || null,
+              designation: l.designation,
+              quantite: num(l.quantite),
+              prix_reel: num(l.prix_unitaire),
+            }))
+            .filter((b): b is BonLineForRoute => b.designation.trim() !== "" && b.quantite > 0)}
+        />
+      )}
     </form>
   );
 }

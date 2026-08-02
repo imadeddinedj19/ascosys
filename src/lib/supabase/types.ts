@@ -60,6 +60,7 @@ export type ProductPrice = {
   client_id: string | null; // null = prix général ; sinon prix spécifique à ce client
   prix_unitaire: number;
   valid_from: string;
+  fictive: boolean; // true = prix « facture de route » pour ce client
   created_at: string;
 };
 
@@ -80,6 +81,8 @@ export type SalesDocument = {
   paiement_mode: PaymentMode | null;
   statut: SalesDocumentStatut;
   historique: boolean;
+  fictive: boolean; // true = facture / BL de route (présentation, exclu du solde)
+  parent_bon_id: string | null; // bon de livraison à partir duquel la facture fictive a été générée
   notes: string | null;
   created_at: string;
 };

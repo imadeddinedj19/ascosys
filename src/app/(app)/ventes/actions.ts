@@ -191,6 +191,167 @@ async function reconcileDocumentPayment(
   });
 }
 
+/* ============================================================================
+ * Facture / BL de route (fictive)
+ * ==========================================================================*/
+
+export type FactureRouteLineInput = {
+  bon_line_id: string;
+  product_id: string | null;
+  designation: string;
+  quantite: number;
+  prix_reel: number;
+  prix_fictif: string;
+};
+
+export type FactureRouteInput = {
+  numero: string;
+  date: string;
+  tva_rate: string;
+  paiement_mode: PaymentMode | "";
+  save_prices: boolean;
+  lines: FactureRouteLineInput[];
+};
+
+/**
+ * Crée une « facture de route » (fictive) à partir d'un bon de livraison existant.
+ * Consomme le compteur de facture (via next_facture_numero) sauf si l'utilisateur
+ * fournit un numéro explicite. Exclue du solde client (fictive = true).
+ * Enregistre optionnellement les prix fictifs pour rappel automatique au prochain BL du même client.
+ */
+export async function createFactureRoute(
+  bonId: string,
+  input: FactureRouteInput,
+): Promise<ActionResult> {
+  if (!bonId) return { ok: false, error: "Bon de livraison introuvable." };
+  if (input.lines.length === 0) return { ok: false, error: "Aucune ligne à facturer." };
+
+  const supabase = await createClient();
+
+  const { data: bon, error: bonErr } = await supabase
+    .from("sales_documents")
+    .select("id, client_id, date, type")
+    .eq("id", bonId)
+    .single();
+  if (bonErr || !bon) return { ok: false, error: bonErr?.message ?? "Bon de livraison introuvable." };
+  if (bon.type !== "bon") return { ok: false, error: "Ce document n'est pas un bon de livraison." };
+
+  const cleanLines = input.lines
+    .map((l, i) => ({
+      product_id: l.product_id || null,
+      designation: l.designation.trim(),
+      quantite: l.quantite,
+      prix_unitaire: round2(num(l.prix_fictif)),
+      total_ht: round2(l.quantite * num(l.prix_fictif)),
+      position: i,
+    }))
+    .filter((l) => l.designation !== "" && l.quantite > 0);
+  if (cleanLines.length === 0) return { ok: false, error: "Aucune ligne exploitable." };
+
+  const tvaRate = num(input.tva_rate);
+  const totalHt = round2(cleanLines.reduce((s, l) => s + l.total_ht, 0));
+  const totalTva = round2(totalHt * tvaRate);
+  const ttcBase = round2(totalHt + totalTva);
+  const paiementMode = input.paiement_mode || null;
+  const timbre = droitTimbreSiEspeces(ttcBase, paiementMode);
+  const totalTtc = round2(ttcBase + timbre);
+
+  // Attribue un numéro : utilise celui fourni par l'utilisateur s'il n'existe pas déjà,
+  // sinon consomme atomiquement le compteur facture.
+  let numero = input.numero.trim();
+  if (numero) {
+    const { data: exists } = await supabase
+      .from("sales_documents")
+      .select("id")
+      .eq("numero", numero)
+      .maybeSingle();
+    if (exists) numero = "";
+  }
+  if (!numero) {
+    const { data: n, error: nErr } = await supabase.rpc("next_facture_numero");
+    if (nErr) return { ok: false, error: nErr.message };
+    numero = n as string;
+  }
+
+  const { data: newDoc, error: insErr } = await supabase
+    .from("sales_documents")
+    .insert({
+      numero,
+      date: input.date,
+      client_id: bon.client_id,
+      type: "facture",
+      fictive: true,
+      parent_bon_id: bon.id,
+      tva_rate: tvaRate,
+      statut: "valide",
+      paiement_mode: paiementMode,
+      notes: `Facture de route — BL parent ${bon.id.slice(0, 8)}`,
+      total_ht: totalHt,
+      total_tva: totalTva,
+      timbre,
+      total_ttc: totalTtc,
+    })
+    .select("id")
+    .single();
+  if (insErr || !newDoc) return { ok: false, error: insErr?.message ?? "Insertion échouée." };
+
+  const { error: linesErr } = await supabase
+    .from("sales_document_lines")
+    .insert(cleanLines.map((l) => ({ ...l, document_id: newDoc.id })));
+  if (linesErr) return { ok: false, error: linesErr.message };
+
+  // Mémorise les prix fictifs par (client, produit) pour rappel automatique.
+  if (input.save_prices) {
+    const toSave = input.lines
+      .filter((l) => l.product_id && num(l.prix_fictif) > 0)
+      .map((l) => ({
+        product_id: l.product_id as string,
+        client_id: bon.client_id,
+        prix_unitaire: round2(num(l.prix_fictif)),
+        fictive: true,
+      }));
+    if (toSave.length > 0) {
+      // Supprime les anciens prix fictifs pour ce couple (client, produit) puis ré-insère.
+      const productIds = toSave.map((r) => r.product_id);
+      await supabase
+        .from("product_prices")
+        .delete()
+        .eq("client_id", bon.client_id)
+        .eq("fictive", true)
+        .in("product_id", productIds);
+      await supabase.from("product_prices").insert(toSave);
+    }
+  }
+
+  revalidatePath("/factures");
+  revalidatePath("/bons-livraison");
+  revalidatePath(`/ventes/${bonId}`);
+  return { ok: true, id: newDoc.id };
+}
+
+/**
+ * Récupère les prix fictifs déjà enregistrés pour un client
+ * → utilisé par la modale « Facture de route » pour pré-remplir les lignes.
+ */
+export async function getFictivePricesForClient(clientId: string): Promise<Record<string, number>> {
+  if (!clientId) return {};
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("product_prices")
+    .select("product_id, prix_unitaire")
+    .eq("client_id", clientId)
+    .eq("fictive", true);
+  const map: Record<string, number> = {};
+  for (const row of data ?? []) map[row.product_id] = Number(row.prix_unitaire);
+  return map;
+}
+
+/** Numéro facture suggéré (peek — ne consomme pas le compteur). */
+export async function getSuggestedFactureNumero(): Promise<string> {
+  const { suggestNumero } = await import("@/lib/data/numero");
+  return suggestNumero("facture");
+}
+
 export async function deleteDocument(id: string): Promise<DeleteResult> {
   return deleteDocuments([id]);
 }
