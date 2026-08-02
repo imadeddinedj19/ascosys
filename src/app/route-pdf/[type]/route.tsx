@@ -132,7 +132,9 @@ export async function POST(
     phone: client.phone,
   };
   const pdfLines: PdfLine[] = lines;
-  const variant: PdfVariant = isFacture ? "facture" : "bon";
+  // BL de route : mêmes lignes que la facture mais SANS prix (variante "bon-facture",
+  // celle utilisée quand un BL accompagne une facture déjà émise — quantités seulement).
+  const variant: PdfVariant = isFacture ? "facture" : "bon-facture";
 
   const buffer = await renderToBuffer(
     <SalesDocumentPDF doc={pdfDoc} client={pdfClient} lines={pdfLines} variant={variant} />,
