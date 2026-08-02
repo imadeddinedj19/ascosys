@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowDownAZ, ArrowUpAZ, ArrowDown01, ArrowUp01, ListFilter, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,8 +77,11 @@ export function HeaderMenu({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   const active = (filters[colKey]?.size ?? 0) > 0 || sort?.key === colKey;
   const selected = filters[colKey] ?? new Set<string>();
@@ -97,8 +101,15 @@ export function HeaderMenu({
         btnRef.current && !btnRef.current.contains(e.target as Node)
       ) setOpen(false);
     }
+    function onReflow() { setOpen(false); }
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
   }, [open]);
 
   function openMenu() {
@@ -127,11 +138,11 @@ export function HeaderMenu({
         <ListFilter className="size-3.5" />
       </button>
 
-      {open && pos && (
+      {open && pos && mounted && createPortal(
         <div
           ref={menuRef}
-          style={{ position: "fixed", left: pos.x, top: pos.y }}
-          className="z-50 w-56 overflow-hidden rounded-md border border-border bg-surface-2 text-left shadow-lg"
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60 }}
+          className="w-56 overflow-hidden rounded-md border border-border bg-surface-2 text-left shadow-lg"
         >
           <div className="flex flex-col p-1">
             <button type="button" onClick={() => { toggleSort(colKey, "asc"); setOpen(false); }} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-muted hover:bg-surface hover:text-foreground">
@@ -176,7 +187,8 @@ export function HeaderMenu({
               </ul>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

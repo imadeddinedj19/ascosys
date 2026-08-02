@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronsUpDown, Check, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,9 +36,13 @@ export function Combobox({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
 
@@ -50,10 +55,21 @@ export function Combobox({
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      const insideTrigger = rootRef.current?.contains(t);
+      const insideDropdown = dropdownRef.current?.contains(t);
+      if (!insideTrigger && !insideDropdown) setOpen(false);
     }
+    // Ferme si l'utilisateur fait défiler ou redimensionne — la position figée deviendrait fausse.
+    function onReflow() { setOpen(false); }
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -105,10 +121,11 @@ export function Combobox({
         </span>
       </button>
 
-      {open && pos && (
+      {open && pos && mounted && createPortal(
         <div
-          style={{ position: "fixed", left: pos.left, top: pos.top, width: pos.width }}
-          className="z-50 overflow-hidden rounded-md border border-border bg-surface-2 shadow-lg"
+          ref={dropdownRef}
+          style={{ position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: 60 }}
+          className="overflow-hidden rounded-md border border-border bg-surface-2 shadow-lg"
         >
           <div className="flex items-center gap-2 border-b border-border px-2.5">
             <Search className="size-4 shrink-0 text-muted-foreground" />
@@ -144,7 +161,8 @@ export function Combobox({
               </li>
             ))}
           </ul>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
