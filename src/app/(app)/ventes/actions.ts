@@ -214,17 +214,21 @@ export type FactureRouteInput = {
 };
 
 /**
- * Crée une « facture de route » (fictive) à partir d'un bon de livraison existant.
- * Consomme le compteur de facture (via next_facture_numero) sauf si l'utilisateur
- * fournit un numéro explicite. Exclue du solde client (fictive = true).
- * Enregistre optionnellement les prix fictifs pour rappel automatique au prochain BL du même client.
+ * Crée un document de route (fictif) à partir d'un bon de livraison existant.
+ * - docType='facture' → nouvelle facture (avec TVA + timbre si espèces), numéro N/AA.
+ * - docType='bon'     → nouveau bon de livraison sans TVA, numéro N/MM/AA.
+ * Le numéro fourni par l'utilisateur est utilisé s'il est libre ; sinon on consomme
+ * le compteur correspondant. Documents exclus du solde client (fictive = true).
+ * Enregistre optionnellement les prix fictifs pour rappel automatique aux prochains BL.
  */
-export async function createFactureRoute(
+export async function createRouteDocument(
   bonId: string,
+  docType: SalesDocumentType,
   input: FactureRouteInput,
 ): Promise<ActionResult> {
   if (!bonId) return { ok: false, error: "Bon de livraison introuvable." };
-  if (input.lines.length === 0) return { ok: false, error: "Aucune ligne à facturer." };
+  if (input.lines.length === 0) return { ok: false, error: "Aucune ligne à générer." };
+  if (docType !== "facture" && docType !== "bon") return { ok: false, error: "Type de document invalide." };
 
   const supabase = await createClient();
 
@@ -248,16 +252,16 @@ export async function createFactureRoute(
     .filter((l) => l.designation !== "" && l.quantite > 0);
   if (cleanLines.length === 0) return { ok: false, error: "Aucune ligne exploitable." };
 
-  const tvaRate = num(input.tva_rate);
+  const isFacture = docType === "facture";
+  const tvaRate = isFacture ? num(input.tva_rate) : 0;
   const totalHt = round2(cleanLines.reduce((s, l) => s + l.total_ht, 0));
   const totalTva = round2(totalHt * tvaRate);
   const ttcBase = round2(totalHt + totalTva);
-  const paiementMode = input.paiement_mode || null;
-  const timbre = droitTimbreSiEspeces(ttcBase, paiementMode);
+  const paiementMode = isFacture ? (input.paiement_mode || null) : null;
+  const timbre = isFacture ? droitTimbreSiEspeces(ttcBase, paiementMode) : 0;
   const totalTtc = round2(ttcBase + timbre);
 
-  // Attribue un numéro : utilise celui fourni par l'utilisateur s'il n'existe pas déjà,
-  // sinon consomme atomiquement le compteur facture.
+  // Attribue un numéro : utilise celui fourni s'il n'existe pas déjà, sinon consomme le compteur.
   let numero = input.numero.trim();
   if (numero) {
     const { data: exists } = await supabase
@@ -268,24 +272,26 @@ export async function createFactureRoute(
     if (exists) numero = "";
   }
   if (!numero) {
-    const { data: n, error: nErr } = await supabase.rpc("next_facture_numero");
+    const rpc = isFacture ? "next_facture_numero" : "next_bl_numero";
+    const { data: n, error: nErr } = await supabase.rpc(rpc);
     if (nErr) return { ok: false, error: nErr.message };
     numero = n as string;
   }
 
+  const label = isFacture ? "Facture de route" : "BL de route";
   const { data: newDoc, error: insErr } = await supabase
     .from("sales_documents")
     .insert({
       numero,
       date: input.date,
       client_id: bon.client_id,
-      type: "facture",
+      type: docType,
       fictive: true,
       parent_bon_id: bon.id,
       tva_rate: tvaRate,
       statut: "valide",
       paiement_mode: paiementMode,
-      notes: `Facture de route — BL parent ${bon.id.slice(0, 8)}`,
+      notes: `${label} — BL parent ${bon.id.slice(0, 8)}`,
       total_ht: totalHt,
       total_tva: totalTva,
       timbre,
@@ -311,7 +317,6 @@ export async function createFactureRoute(
         fictive: true,
       }));
     if (toSave.length > 0) {
-      // Supprime les anciens prix fictifs pour ce couple (client, produit) puis ré-insère.
       const productIds = toSave.map((r) => r.product_id);
       await supabase
         .from("product_prices")
@@ -327,6 +332,11 @@ export async function createFactureRoute(
   revalidatePath("/bons-livraison");
   revalidatePath(`/ventes/${bonId}`);
   return { ok: true, id: newDoc.id };
+}
+
+/** @deprecated — utilisez createRouteDocument(bonId, 'facture', input). */
+export async function createFactureRoute(bonId: string, input: FactureRouteInput): Promise<ActionResult> {
+  return createRouteDocument(bonId, "facture", input);
 }
 
 /**
@@ -346,10 +356,15 @@ export async function getFictivePricesForClient(clientId: string): Promise<Recor
   return map;
 }
 
-/** Numéro facture suggéré (peek — ne consomme pas le compteur). */
-export async function getSuggestedFactureNumero(): Promise<string> {
+/** Numéro suggéré pour un nouveau document (peek — ne consomme pas le compteur). */
+export async function getSuggestedNumero(docType: SalesDocumentType): Promise<string> {
   const { suggestNumero } = await import("@/lib/data/numero");
-  return suggestNumero("facture");
+  return suggestNumero(docType);
+}
+
+/** @deprecated — utilisez getSuggestedNumero('facture'). */
+export async function getSuggestedFactureNumero(): Promise<string> {
+  return getSuggestedNumero("facture");
 }
 
 export async function deleteDocument(id: string): Promise<DeleteResult> {
