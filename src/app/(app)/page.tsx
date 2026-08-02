@@ -34,7 +34,7 @@ function monthKey(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 
 async function getStats(): Promise<Stats> {
   const supabase = await createClient();
   const [{ data: docs }, { data: pays }, { data: balances }, { data: treso }] = await Promise.all([
-    supabase.from("sales_documents").select("date, total_ttc, statut").eq("fictive", false),
+    supabase.from("sales_documents").select("date, total_ttc, statut"),
     supabase.from("payments").select("date, montant"),
     supabase.from("client_balance").select("solde"),
     supabase.from("transactions_running").select("solde, date, created_at").order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1),

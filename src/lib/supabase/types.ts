@@ -60,8 +60,15 @@ export type ProductPrice = {
   client_id: string | null; // null = prix général ; sinon prix spécifique à ce client
   prix_unitaire: number;
   valid_from: string;
-  fictive: boolean; // true = prix « facture de route » pour ce client
   created_at: string;
+};
+
+/** Prix « facture / BL de route » (fictif) mémorisé pour un couple (client, produit). */
+export type FictivePrice = {
+  client_id: string;
+  product_id: string;
+  prix_unitaire: number;
+  updated_at: string;
 };
 
 export type SalesDocumentType = "bon" | "facture";
@@ -81,8 +88,6 @@ export type SalesDocument = {
   paiement_mode: PaymentMode | null;
   statut: SalesDocumentStatut;
   historique: boolean;
-  fictive: boolean; // true = facture / BL de route (présentation, exclu du solde)
-  parent_bon_id: string | null; // bon de livraison à partir duquel la facture fictive a été générée
   notes: string | null;
   created_at: string;
 };
@@ -314,6 +319,7 @@ export type Database = {
       prospect_deposits: TableConfig<ProspectDeposit>;
       order_queue: TableConfig<OrderQueue>;
       proforma_counters: TableConfig<{ year: number; last: number }>;
+      fictive_prices: TableConfig<FictivePrice>;
     };
     Views: {
       client_balance: ViewConfig<ClientBalance>;

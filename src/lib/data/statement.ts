@@ -52,7 +52,6 @@ export async function buildClientStatement(clientId: string, year: number): Prom
       .from("sales_documents")
       .select("id, numero, date, type, total_ttc, statut, created_at")
       .eq("client_id", clientId)
-      .eq("fictive", false)
       .neq("statut", "brouillon"),
     supabase.from("payments").select("date, montant, note, created_at").eq("client_id", clientId),
   ]);

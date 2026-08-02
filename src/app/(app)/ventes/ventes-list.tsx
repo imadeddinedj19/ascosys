@@ -108,7 +108,6 @@ export function DocumentsList({
                 <TableCell>
                   <Link href={`/ventes/${d.id}`} className="font-mono text-sm font-medium text-primary hover:underline">{d.numero}</Link>
                   {d.historique && <Badge variant="neutral" className="ml-2">historique</Badge>}
-                  {d.fictive && <Badge variant="warning" className="ml-2">route</Badge>}
                 </TableCell>
                 <TableCell className="text-muted whitespace-nowrap">{formatDate(d.date)}</TableCell>
                 <TableCell className="text-foreground">{clientName.get(d.client_id) ?? "—"}</TableCell>

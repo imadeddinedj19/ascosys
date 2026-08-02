@@ -297,7 +297,6 @@ export function DocumentEditor({
         <FactureRouteModal
           open={routeModalOpen}
           onClose={() => setRouteModalOpen(false)}
-          bonId={initial.id}
           clientId={header.client_id}
           suggestedDate={header.date}
           bonLines={lines

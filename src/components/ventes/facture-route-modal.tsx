@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ExternalLink, Percent, ReceiptText, Truck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Percent, ReceiptText, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,12 +10,10 @@ import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDZD } from "@/lib/format";
 import { droitTimbreSiEspeces } from "@/lib/fiscal";
-import type { PaymentMode, SalesDocumentType } from "@/lib/supabase/types";
+import type { PaymentMode } from "@/lib/supabase/types";
 import {
-  createRouteDocument,
   getFictivePricesForClient,
   getSuggestedNumero,
-  type FactureRouteLineInput,
 } from "@/app/(app)/ventes/actions";
 
 export type BonLineForRoute = {
@@ -28,40 +24,38 @@ export type BonLineForRoute = {
   prix_reel: number;
 };
 
-type Row = FactureRouteLineInput;
+type Row = {
+  key: string;
+  product_id: string | null;
+  designation: string;
+  quantite: number;
+  prix_reel: number;
+  prix_fictif: string;
+};
 
 const DEFAULT_DISCOUNT = 45.0;
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
-function applyDiscount(prixReel: number, discountPct: number): number {
-  const kept = 1 - discountPct / 100;
-  return round1(prixReel * kept);
-}
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const num = (v: string) => {
+  const x = Number((v ?? "").replace(",", "."));
+  return Number.isFinite(x) ? x : 0;
+};
+const applyDiscount = (prixReel: number, discountPct: number) =>
+  round1(prixReel * (1 - discountPct / 100));
 
 export function FactureRouteModal({
   open,
   onClose,
-  bonId,
   clientId,
   bonLines,
   suggestedDate,
 }: {
   open: boolean;
   onClose: () => void;
-  bonId: string;
   clientId: string;
   bonLines: BonLineForRoute[];
   suggestedDate: string;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [busyDoc, setBusyDoc] = useState<SalesDocumentType | null>(null);
-
-  // Numéros suggérés séparés pour chaque type (compteurs distincts).
   const [numeroFacture, setNumeroFacture] = useState("");
   const [numeroBon, setNumeroBon] = useState("");
   const [date, setDate] = useState(suggestedDate);
@@ -72,15 +66,9 @@ export function FactureRouteModal({
   const [rows, setRows] = useState<Row[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // Ids des documents générés durant cette session (permet d'ouvrir le PDF sans repop-up).
-  const [generated, setGenerated] = useState<{ facture?: string; bon?: string }>({});
-
-  // Réinitialise à chaque ouverture : numéros suggérés + prix fictifs enregistrés pour le client.
   useEffect(() => {
     if (!open) return;
     setLoaded(false);
-    setError(null);
-    setGenerated({});
     setDate(suggestedDate);
 
     (async () => {
@@ -98,7 +86,7 @@ export function FactureRouteModal({
             ? round1(savedPrice)
             : applyDiscount(l.prix_reel, DEFAULT_DISCOUNT);
         return {
-          bon_line_id: l.id,
+          key: l.id,
           product_id: l.product_id,
           designation: l.designation,
           quantite: l.quantite,
@@ -124,11 +112,6 @@ export function FactureRouteModal({
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, prix_fictif: v } : r)));
   }
 
-  const num = (v: string) => {
-    const x = Number((v ?? "").replace(",", "."));
-    return Number.isFinite(x) ? x : 0;
-  };
-
   const totalsFacture = useMemo(() => {
     const ht = rows.reduce((s, r) => s + r.quantite * num(r.prix_fictif), 0);
     const tva = ht * num(tvaRate);
@@ -142,40 +125,34 @@ export function FactureRouteModal({
     [rows],
   );
 
-  function generate(docType: SalesDocumentType) {
-    setError(null);
-    setBusyDoc(docType);
-    start(async () => {
-      const res = await createRouteDocument(bonId, docType, {
-        numero: (docType === "facture" ? numeroFacture : numeroBon).trim(),
-        date,
-        tva_rate: tvaRate,
-        paiement_mode: paiementMode,
-        save_prices: savePrices,
-        lines: rows,
-      });
-      setBusyDoc(null);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      setGenerated((g) => ({ ...g, [docType]: res.id }));
-      router.refresh(); // rafraîchit la liste des factures / bons de l'onglet appelant
+  // Payload envoyé à /route-pdf/{facture|bon}. Recalculé à chaque rendu :
+  // le champ hidden expose donc TOUJOURS les valeurs courantes du formulaire.
+  const buildPayload = (numero: string) =>
+    JSON.stringify({
+      clientId,
+      numero: numero.trim(),
+      date,
+      tva_rate: num(tvaRate),
+      paiement_mode: paiementMode || null,
+      notes: null,
+      save_prices: savePrices,
+      lines: rows.map((r) => ({
+        product_id: r.product_id,
+        designation: r.designation,
+        quantite: r.quantite,
+        prix_unitaire: num(r.prix_fictif),
+      })),
     });
-  }
 
-  function closeAndRefresh() {
-    onClose();
-    router.refresh();
-  }
+  const canSubmit = loaded && rows.length > 0 && clientId;
 
   return (
-    <Modal open={open} onClose={closeAndRefresh} title="Facture / BL de route" className="max-w-3xl">
+    <Modal open={open} onClose={onClose} title="Facture / BL de route" className="max-w-3xl">
       <div className="space-y-5">
         <p className="text-xs text-muted-foreground">
-          Génère des documents fictifs (prix réduits par défaut −{DEFAULT_DISCOUNT}%),
-          liés au bon de livraison courant. Ils consomment leurs numérotations
-          respectives mais restent exclus du solde client réel.
+          Génère des PDF à la volée (prix réduits par défaut −{DEFAULT_DISCOUNT}%).
+          <strong className="ml-1 text-foreground">Aucun document n&apos;est enregistré</strong>
+          {" "}dans le CRM — seuls les prix par client sont mémorisés pour rappel automatique.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -230,7 +207,7 @@ export function FactureRouteModal({
             <div className="px-3 py-4 text-sm text-muted-foreground">Aucune ligne à générer.</div>
           ) : (
             rows.map((r, i) => (
-              <div key={r.bon_line_id} className="grid grid-cols-12 gap-2 border-b border-border/60 px-3 py-2 last:border-0">
+              <div key={r.key} className="grid grid-cols-12 gap-2 border-b border-border/60 px-3 py-2 last:border-0">
                 <div className="col-span-5 truncate text-sm text-foreground">{r.designation}</div>
                 <div className="col-span-2 text-right text-sm text-muted">{r.quantite}</div>
                 <div className="col-span-2 text-right text-sm text-muted">{formatDZD(r.prix_reel)}</div>
@@ -267,49 +244,24 @@ export function FactureRouteModal({
           </span>
         </label>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
-
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Button type="button" variant="outline" onClick={closeAndRefresh} disabled={pending}>
-            Fermer
-          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>Fermer</Button>
           <div className="flex flex-wrap gap-2">
-            {/* BOUTON BL */}
-            {generated.bon ? (
-              <Link href={`/ventes/${generated.bon}/bon-livraison`} target="_blank" rel="noopener">
-                <Button type="button" variant="secondary">
-                  <ExternalLink className="size-4" /> Ouvrir le BL PDF
-                </Button>
-              </Link>
-            ) : (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => generate("bon")}
-                disabled={pending || !loaded || rows.length === 0}
-              >
-                <Truck className="size-4" />
-                {busyDoc === "bon" ? "Génération…" : "Générer le bon de livraison"}
+            {/* FORM BL — POST /route-pdf/bon, target=_blank ouvre le PDF dans un nouvel onglet */}
+            <form method="POST" action="/route-pdf/bon" target="_blank" className="contents">
+              <input type="hidden" name="payload" value={buildPayload(numeroBon)} />
+              <Button type="submit" variant="secondary" disabled={!canSubmit}>
+                <Truck className="size-4" /> Générer le bon de livraison
               </Button>
-            )}
+            </form>
 
-            {/* BOUTON FACTURE */}
-            {generated.facture ? (
-              <Link href={`/ventes/${generated.facture}/facture`} target="_blank" rel="noopener">
-                <Button type="button">
-                  <ExternalLink className="size-4" /> Ouvrir la facture PDF
-                </Button>
-              </Link>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => generate("facture")}
-                disabled={pending || !loaded || rows.length === 0}
-              >
-                <ReceiptText className="size-4" />
-                {busyDoc === "facture" ? "Génération…" : "Générer la facture"}
+            {/* FORM FACTURE */}
+            <form method="POST" action="/route-pdf/facture" target="_blank" className="contents">
+              <input type="hidden" name="payload" value={buildPayload(numeroFacture)} />
+              <Button type="submit" disabled={!canSubmit}>
+                <ReceiptText className="size-4" /> Générer la facture
               </Button>
-            )}
+            </form>
           </div>
         </div>
       </div>
