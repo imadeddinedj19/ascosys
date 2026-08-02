@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Percent, ReceiptText, Truck } from "lucide-react";
+import type { SalesDocumentType as _DocType } from "@/lib/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -145,6 +146,57 @@ export function FactureRouteModal({
     });
 
   const canSubmit = loaded && rows.length > 0 && clientId;
+  const [error, setError] = useState<string | null>(null);
+  const [busyType, setBusyType] = useState<_DocType | null>(null);
+
+  /**
+   * Génère un PDF via /route-pdf/{type} et l'ouvre dans un nouvel onglet.
+   *
+   * Contournement : la soumission d'un <form target="_blank"> est interceptée
+   * par React 19 dans Next.js 16 (l'événement submit se propage mais le
+   * navigateur n'ouvre pas d'onglet). On force donc :
+   *   1. window.open('about:blank', '_blank')  ← exécuté dans le geste utilisateur
+   *   2. fetch POST du payload                  ← récupère le blob PDF
+   *   3. win.location = blob URL                ← affiche le PDF dans l'onglet ouvert
+   * Le popup blocker de Chrome accepte car window.open est appelé pendant
+   * le handler onClick d'un vrai clic souris.
+   */
+  async function generate(docType: _DocType, numero: string) {
+    setError(null);
+    // 1. Ouvre le nouvel onglet TOUT DE SUITE (encore dans le geste utilisateur).
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("Le navigateur a bloqué l'ouverture d'un nouvel onglet. Autorisez les pop-ups pour ce site.");
+      return;
+    }
+    // Page d'attente pendant que le PDF se génère.
+    win.document.write(
+      `<title>Génération du PDF…</title><body style="background:#0a1220;color:#8ea3b8;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div>Génération du PDF en cours…</div></body>`,
+    );
+
+    setBusyType(docType);
+    try {
+      const form = new FormData();
+      form.append("payload", buildPayload(numero));
+      const res = await fetch(`/route-pdf/${docType}`, { method: "POST", body: form, credentials: "include" });
+      if (!res.ok) {
+        const txt = await res.text();
+        win.document.body.innerHTML = `<div style="color:#f87171;padding:2rem;font-family:system-ui"><h2>Échec de génération</h2><pre>${txt.replace(/</g, "&lt;")}</pre></div>`;
+        setError(`Échec (${res.status}): ${txt.slice(0, 120)}`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      win.location.replace(url);
+      // Libère le blob URL après un délai (le navigateur a déjà chargé le PDF).
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      win.close();
+      setError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setBusyType(null);
+    }
+  }
 
   return (
     <Modal open={open} onClose={onClose} title="Facture / BL de route" className="max-w-3xl">
@@ -244,24 +296,28 @@ export function FactureRouteModal({
           </span>
         </label>
 
+        {error && <p className="text-sm text-danger">{error}</p>}
+
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
           <Button type="button" variant="outline" onClick={onClose}>Fermer</Button>
           <div className="flex flex-wrap gap-2">
-            {/* FORM BL — POST /route-pdf/bon, target=_blank ouvre le PDF dans un nouvel onglet */}
-            <form method="POST" action="/route-pdf/bon" target="_blank" className="contents">
-              <input type="hidden" name="payload" value={buildPayload(numeroBon)} />
-              <Button type="submit" variant="secondary" disabled={!canSubmit}>
-                <Truck className="size-4" /> Générer le bon de livraison
-              </Button>
-            </form>
-
-            {/* FORM FACTURE */}
-            <form method="POST" action="/route-pdf/facture" target="_blank" className="contents">
-              <input type="hidden" name="payload" value={buildPayload(numeroFacture)} />
-              <Button type="submit" disabled={!canSubmit}>
-                <ReceiptText className="size-4" /> Générer la facture
-              </Button>
-            </form>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!canSubmit || busyType !== null}
+              onClick={() => generate("bon", numeroBon)}
+            >
+              <Truck className="size-4" />
+              {busyType === "bon" ? "Génération…" : "Générer le bon de livraison"}
+            </Button>
+            <Button
+              type="button"
+              disabled={!canSubmit || busyType !== null}
+              onClick={() => generate("facture", numeroFacture)}
+            >
+              <ReceiptText className="size-4" />
+              {busyType === "facture" ? "Génération…" : "Générer la facture"}
+            </Button>
           </div>
         </div>
       </div>
